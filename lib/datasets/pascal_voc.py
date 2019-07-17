@@ -126,6 +126,7 @@ class pascal_voc(imdb):
             with open(cache_file, 'rb') as fid:
                 roidb = pickle.load(fid)
             print('{} gt roidb loaded from {}'.format(self.name, cache_file))
+            #print("Print gt_roidb " + str(roidb))
             return roidb
 
         gt_roidb = [self._load_pascal_annotation(index)
@@ -133,7 +134,6 @@ class pascal_voc(imdb):
         with open(cache_file, 'wb') as fid:
             pickle.dump(gt_roidb, fid, pickle.HIGHEST_PROTOCOL)
         print('wrote gt roidb to {}'.format(cache_file))
-
         return gt_roidb
 
     def selective_search_roidb(self):

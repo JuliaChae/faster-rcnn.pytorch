@@ -53,6 +53,7 @@ def generate_anchors(base_size=16, ratios=[0.5, 1, 2],
     ratio_anchors = _ratio_enum(base_anchor, ratios)
     anchors = np.vstack([_scale_enum(ratio_anchors[i, :], scales)
                          for i in xrange(ratio_anchors.shape[0])])
+    #pdb.set_trace()
     return anchors
 
 def _whctrs(anchor):

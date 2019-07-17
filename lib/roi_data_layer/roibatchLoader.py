@@ -19,6 +19,8 @@ import random
 import time
 import pdb
 
+import matplotlib.pyplot as plt 
+
 class roibatchLoader(data.Dataset):
   def __init__(self, roidb, ratio_list, ratio_index, batch_size, num_classes, training=True, normalize=None):
     self._roidb = roidb
@@ -51,7 +53,7 @@ class roibatchLoader(data.Dataset):
             # for ratio cross 1, we make it to be 1.
             target_ratio = 1
 
-        self.ratio_list_batch[left_idx:(right_idx+1)] = torch.tensor(target_ratio.astype(np.float64)) # trainset ratio list ,each batch is same number
+        self.ratio_list_batch[left_idx:(right_idx+1)] = target_ratio
 
 
   def __getitem__(self, index):
@@ -69,6 +71,7 @@ class roibatchLoader(data.Dataset):
     im_info = torch.from_numpy(blobs['im_info'])
     # we need to random shuffle the bounding box.
     data_height, data_width = data.size(1), data.size(2)
+
     if self.training:
         np.random.shuffle(blobs['gt_boxes'])
         gt_boxes = torch.from_numpy(blobs['gt_boxes'])
@@ -156,7 +159,6 @@ class roibatchLoader(data.Dataset):
                 # update gt bounding box according the trip
                 gt_boxes[:, 0].clamp_(0, trim_size - 1)
                 gt_boxes[:, 2].clamp_(0, trim_size - 1)
-
         # based on the ratio, padding the image.
         if ratio < 1:
             # this means that data_width < data_height
@@ -201,7 +203,6 @@ class roibatchLoader(data.Dataset):
             # permute trim_data to adapt to downstream processing
         padding_data = padding_data.permute(2, 0, 1).contiguous()
         im_info = im_info.view(3)
-
         return padding_data, im_info, gt_boxes_padding, num_boxes
     else:
         data = data.permute(0, 3, 1, 2).contiguous().view(3, data_height, data_width)

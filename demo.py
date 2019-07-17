@@ -20,21 +20,30 @@ import torch
 from torch.autograd import Variable
 import torch.nn as nn
 import torch.optim as optim
+import matplotlib.pyplot as plt 
 
 import torchvision.transforms as transforms
 import torchvision.datasets as dset
-from scipy.misc import imread
+from imageio import imread
 from roi_data_layer.roidb import combined_roidb
 from roi_data_layer.roibatchLoader import roibatchLoader
 from model.utils.config import cfg, cfg_from_file, cfg_from_list, get_output_dir
 from model.rpn.bbox_transform import clip_boxes
-from model.nms.nms_wrapper import nms
+# from model.nms.nms_wrapper import nms
+from model.roi_layers import nms
 from model.rpn.bbox_transform import bbox_transform_inv
 from model.utils.net_utils import save_net, load_net, vis_detections
 from model.utils.blob import im_list_to_blob
 from model.faster_rcnn.vgg16 import vgg16
 from model.faster_rcnn.resnet import resnet
 import pdb
+
+from nuscenes import NuScenes 
+from nuscenes import NuScenesExplorer 
+from nuscenes.utils.geometry_utils import view_points, box_in_image, BoxVisibility
+
+nusc = NuScenes(version='v1.0-mini', dataroot='/data/sets/nuscenes', verbose=True)
+explorer = NuScenesExplorer(nusc)
 
 try:
     xrange          # Python 2
@@ -95,7 +104,9 @@ def parse_args():
   parser.add_argument('--webcam_num', dest='webcam_num',
                       help='webcam ID number',
                       default=-1, type=int)
-
+  parser.add_argument('--nuscenes', dest='nuscenes',
+                      help='using nuscenes library or not',
+                      default=False, type=bool)
   args = parser.parse_args()
   return args
 
@@ -158,7 +169,8 @@ if __name__ == '__main__':
   # train set
   # -- Note: Use validation set and disable the flipped to enable faster loading.
 
-  input_dir = args.load_dir + "/" + args.net + "/" + args.dataset
+  input_dir = "/home/julia/faster-rcnn.pytorch/data/pretrained_model"
+  #args.load_dir + "/" + args.net + "/" + args.dataset
   if not os.path.exists(input_dir):
     raise Exception('There is no input directory for loading network from ' + input_dir)
   load_name = os.path.join(input_dir,
@@ -216,11 +228,10 @@ if __name__ == '__main__':
     gt_boxes = gt_boxes.cuda()
 
   # make variable
-  with torch.no_grad():
-    im_data = Variable(im_data)
-    im_info = Variable(im_info)
-    num_boxes = Variable(num_boxes)
-    gt_boxes = Variable(gt_boxes)
+  im_data = Variable(im_data, volatile=True)
+  im_info = Variable(im_info, volatile=True)
+  num_boxes = Variable(num_boxes, volatile=True)
+  gt_boxes = Variable(gt_boxes, volatile=True)
 
   if args.cuda > 0:
     cfg.CUDA = True
@@ -235,40 +246,41 @@ if __name__ == '__main__':
   thresh = 0.05
   vis = True
 
-  webcam_num = args.webcam_num
-  # Set up webcam or get image directories
-  if webcam_num >= 0 :
-    cap = cv2.VideoCapture(webcam_num)
-    num_images = 0
+  imglist = []
+  if args.nuscenes == True:
+      for scene in nusc.scene:
+          token = scene['first_sample_token']
+          while token != '':
+              sample = nusc.get('sample',token)
+              sample_data = nusc.get('sample_data', sample['data']['CAM_FRONT'])
+              data_path, boxes, camera_intrinsic = explorer.nusc.get_sample_data(sample_data['token'], box_vis_level = BoxVisibility.ANY)
+              imglist += [data_path]
+             # img = nusc.render_sample_data(sample_data['token'])
+              token = sample['next']   
+      print(len(imglist))
   else:
-    imglist = os.listdir(args.image_dir)
-    num_images = len(imglist)
+      imglist = os.listdir(args.image_dir)
+      print(imglist)
+      num_images = len(imglist)
 
   print('Loaded Photo: {} images.'.format(num_images))
 
 
   while (num_images >= 0):
       total_tic = time.time()
-      if webcam_num == -1:
-        num_images -= 1
+      num_images -= 1
 
-      # Get image from the webcam
-      if webcam_num >= 0:
-        if not cap.isOpened():
-          raise RuntimeError("Webcam could not open. Please check connection.")
-        ret, frame = cap.read()
-        im_in = np.array(frame)
-      # Load the demo image
+      if args.nuscenes == True: 
+          im_in = nusc_images[num_images]
       else:
-        im_file = os.path.join(args.image_dir, imglist[num_images])
-        # im = cv2.imread(im_file)
-        im_in = np.array(imread(im_file))
-        if len(im_in.shape) == 2:
-          im_in = im_in[:,:,np.newaxis]
-          im_in = np.concatenate((im_in,im_in,im_in), axis=2)
-        # rgb -> bgr
-        im_in = im_in[:,:,::-1]
-      im = im_in
+          im_file = os.path.join(args.image_dir, imglist[num_images])
+          # im = cv2.imread(im_file)
+          im_in = np.array(imread(im_file))
+      if len(im_in.shape) == 2:
+        im_in = im_in[:,:,np.newaxis]
+        im_in = np.concatenate((im_in,im_in,im_in), axis=2)
+      # rgb -> bgr
+      im = im_in[:,:,::-1]
 
       blobs, im_scales = _get_image_blob(im)
       assert len(im_scales) == 1, "Only single-image batch implemented"
@@ -279,10 +291,11 @@ if __name__ == '__main__':
       im_data_pt = im_data_pt.permute(0, 3, 1, 2)
       im_info_pt = torch.from_numpy(im_info_np)
 
-      im_data.data.resize_(im_data_pt.size()).copy_(im_data_pt)
-      im_info.data.resize_(im_info_pt.size()).copy_(im_info_pt)
-      gt_boxes.data.resize_(1, 1, 5).zero_()
-      num_boxes.data.resize_(1).zero_()
+      with torch.no_grad():
+              im_data.resize_(im_data_pt.size()).copy_(im_data_pt)
+              im_info.resize_(im_info_pt.size()).copy_(im_info_pt)
+              gt_boxes.resize_(1, 1, 5).zero_()
+              num_boxes.resize_(1).zero_()
 
       # pdb.set_trace()
       det_tic = time.time()
@@ -292,6 +305,7 @@ if __name__ == '__main__':
       RCNN_loss_cls, RCNN_loss_bbox, \
       rois_label = fasterRCNN(im_data, im_info, gt_boxes, num_boxes)
 
+      print("ROIS: " + str(rois))
       scores = cls_prob.data
       boxes = rois.data[:, :, 1:5]
 
@@ -322,8 +336,7 @@ if __name__ == '__main__':
           pred_boxes = clip_boxes(pred_boxes, im_info.data, 1)
       else:
           # Simply repeat the boxes, once for each class
-          _ = torch.from_numpy(np.tile(boxes, (1, scores.shape[1])))
-          pred_boxes = _.cuda() if args.cuda > 0 else _
+          pred_boxes = np.tile(boxes, (1, scores.shape[1]))
 
       pred_boxes /= im_scales[0]
 
@@ -334,8 +347,10 @@ if __name__ == '__main__':
       misc_tic = time.time()
       if vis:
           im2show = np.copy(im)
+      print("Shape of boxes: " + str(pred_boxes.size()))
+      print(pred_boxes)
       for j in xrange(1, len(pascal_classes)):
-          inds = torch.nonzero(scores[:,j]>thresh).view(-1)
+          inds = torch.nonzero(scores[:,j]).view(-1)#scores[:,j]>thresh).view(-1)
           # if there is det
           if inds.numel() > 0:
             cls_scores = scores[:,j][inds]
@@ -348,32 +363,32 @@ if __name__ == '__main__':
             cls_dets = torch.cat((cls_boxes, cls_scores.unsqueeze(1)), 1)
             # cls_dets = torch.cat((cls_boxes, cls_scores), 1)
             cls_dets = cls_dets[order]
-            keep = nms(cls_dets, cfg.TEST.NMS, force_cpu=not cfg.USE_GPU_NMS)
+            # keep = nms(cls_dets, cfg.TEST.NMS, force_cpu=not cfg.USE_GPU_NMS)
+            keep = nms(cls_boxes[order, :], cls_scores[order], cfg.TEST.NMS)
             cls_dets = cls_dets[keep.view(-1).long()]
+            for i in range(np.minimum(10, cls_dets.cpu().numpy().shape[0])):
+                bbox = tuple(int(np.round(x)) for x in cls_dets.cpu().numpy()[i, :4])
+                bot_left = bbox[0:2]
+                top_right = bbox[2:4] 
+                crop_img = im2show[bot_left[1]:top_right[1],bot_left[0]:top_right[0]]
             if vis:
               im2show = vis_detections(im2show, pascal_classes[j], cls_dets.cpu().numpy(), 0.5)
-
+      
+      plt.figure()
+      print(im2show.shape)
+      plt.imshow(im2show)
+      plt.show()
+      
       misc_toc = time.time()
       nms_time = misc_toc - misc_tic
 
-      if webcam_num == -1:
-          sys.stdout.write('im_detect: {:d}/{:d} {:.3f}s {:.3f}s   \r' \
-                           .format(num_images + 1, len(imglist), detect_time, nms_time))
-          sys.stdout.flush()
+      sys.stdout.write('im_detect: {:d}/{:d} {:.3f}s {:.3f}s   \r' \
+                       .format(num_images + 1, len(imglist), detect_time, nms_time))
+      sys.stdout.flush()
 
-      if vis and webcam_num == -1:
-          # cv2.imshow('test', im2show)
-          # cv2.waitKey(0)
-          result_path = os.path.join(args.image_dir, imglist[num_images][:-4] + "_det.jpg")
-          cv2.imwrite(result_path, im2show)
-      else:
-          cv2.imshow("frame", im2show)
-          total_toc = time.time()
-          total_time = total_toc - total_tic
-          frame_rate = 1 / total_time
-          print('Frame rate:', frame_rate)
-          if cv2.waitKey(1) & 0xFF == ord('q'):
-              break
-  if webcam_num >= 0:
-      cap.release()
-      cv2.destroyAllWindows()
+      # cv2.imshow('test', im2show)
+      # cv2.waitKey(0)
+      result_path = os.path.join("images", imglist[num_images][:-4] + "_det.jpg")
+      cv2.imwrite(result_path, im2show)
+
+

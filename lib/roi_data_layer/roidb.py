@@ -3,9 +3,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
-import pickle
-
 import datasets
 import numpy as np
 from model.utils.config import cfg
@@ -23,18 +20,8 @@ def prepare_roidb(imdb):
 
   roidb = imdb.roidb
   if not (imdb.name.startswith('coco')):
-    cache_file = os.path.join(imdb.cache_path, imdb.name + '_sizes.pkl')
-    if os.path.exists(cache_file):
-      print('Image sizes loaded from %s' % cache_file)
-      with open(cache_file, 'rb') as f:
-        sizes = pickle.load(f)
-    else:
-      print('Extracting image sizes... (It may take long time)')
-      sizes = [PIL.Image.open(imdb.image_path_at(i)).size
-                for i in range(imdb.num_images)]
-      with open(cache_file, 'wb') as f:
-        pickle.dump(sizes, f)
-      print('Done!!')
+    sizes = [PIL.Image.open(imdb.image_path_at(i)).size
+         for i in range(imdb.num_images)]
          
   for i in range(len(imdb.image_index)):
     roidb[i]['img_id'] = imdb.image_id_at(i)
@@ -120,7 +107,8 @@ def combined_roidb(imdb_names, training=True):
   
   def get_roidb(imdb_name):
     imdb = get_imdb(imdb_name)
-    print('Loaded dataset `{:s}`'.format(imdb.name))
+    #print("imdb : " + str(imdb))
+    print('Loaded dataset `{:s}` for training'.format(imdb.name))
     imdb.set_proposal_method(cfg.TRAIN.PROPOSAL_METHOD)
     print('Set proposal method: {:s}'.format(cfg.TRAIN.PROPOSAL_METHOD))
     roidb = get_training_roidb(imdb)

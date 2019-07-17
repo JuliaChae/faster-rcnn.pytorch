@@ -11,6 +11,7 @@ import _init_paths
 import os
 import sys
 import numpy as np
+import numpy.random as npr
 import argparse
 import pprint
 import pdb
@@ -25,6 +26,7 @@ import torchvision.transforms as transforms
 from torch.utils.data.sampler import Sampler
 
 from roi_data_layer.roidb import combined_roidb
+from roi_data_layer.nuscenes_dataloader import nuscenes_dataloader
 from roi_data_layer.roibatchLoader import roibatchLoader
 from model.utils.config import cfg, cfg_from_file, cfg_from_list, get_output_dir
 from model.utils.net_utils import weights_normal_init, save_net, load_net, \
@@ -33,6 +35,12 @@ from model.utils.net_utils import weights_normal_init, save_net, load_net, \
 from model.faster_rcnn.vgg16 import vgg16
 from model.faster_rcnn.resnet import resnet
 
+import matplotlib.pyplot as plt 
+
+from model.utils.config import cfg
+
+import pdb
+
 def parse_args():
   """
   Parse input arguments
@@ -40,7 +48,7 @@ def parse_args():
   parser = argparse.ArgumentParser(description='Train a Fast R-CNN network')
   parser.add_argument('--dataset', dest='dataset',
                       help='training dataset',
-                      default='pascal_voc', type=str)
+                      default='nuscenes', type=str)
   parser.add_argument('--net', dest='net',
                     help='vgg16, res101',
                     default='vgg16', type=str)
@@ -49,7 +57,7 @@ def parse_args():
                       default=1, type=int)
   parser.add_argument('--epochs', dest='max_epochs',
                       help='number of epochs to train',
-                      default=20, type=int)
+                      default=50, type=int)
   parser.add_argument('--disp_interval', dest='disp_interval',
                       help='number of iterations to display',
                       default=100, type=int)
@@ -61,7 +69,7 @@ def parse_args():
                       help='directory to save models', default="models",
                       type=str)
   parser.add_argument('--nw', dest='num_workers',
-                      help='number of workers to load data',
+                      help='number of worker to load data',
                       default=0, type=int)
   parser.add_argument('--cuda', dest='cuda',
                       help='whether use CUDA',
@@ -76,7 +84,7 @@ def parse_args():
                       help='batch_size',
                       default=1, type=int)
   parser.add_argument('--cag', dest='class_agnostic',
-                      help='whether to perform class_agnostic bbox regression',
+                      help='whether perform class_agnostic bbox regression',
                       action='store_true')
 
 # config optimization
@@ -111,7 +119,7 @@ def parse_args():
   parser.add_argument('--checkpoint', dest='checkpoint',
                       help='checkpoint to load model',
                       default=0, type=int)
-# log and display
+# log and diaplay
   parser.add_argument('--use_tfb', dest='use_tfboard',
                       help='whether use tensorboard',
                       action='store_true')
@@ -156,24 +164,16 @@ if __name__ == '__main__':
       args.imdb_name = "voc_2007_trainval"
       args.imdbval_name = "voc_2007_test"
       args.set_cfgs = ['ANCHOR_SCALES', '[8, 16, 32]', 'ANCHOR_RATIOS', '[0.5,1,2]', 'MAX_NUM_GT_BOXES', '20']
-  elif args.dataset == "pascal_voc_0712":
-      args.imdb_name = "voc_2007_trainval+voc_2012_trainval"
-      args.imdbval_name = "voc_2007_test"
-      args.set_cfgs = ['ANCHOR_SCALES', '[8, 16, 32]', 'ANCHOR_RATIOS', '[0.5,1,2]', 'MAX_NUM_GT_BOXES', '20']
-  elif args.dataset == "coco":
-      args.imdb_name = "coco_2014_train+coco_2014_valminusminival"
-      args.imdbval_name = "coco_2014_minival"
-      args.set_cfgs = ['ANCHOR_SCALES', '[4, 8, 16, 32]', 'ANCHOR_RATIOS', '[0.5,1,2]', 'MAX_NUM_GT_BOXES', '50']
-  elif args.dataset == "imagenet":
-      args.imdb_name = "imagenet_train"
-      args.imdbval_name = "imagenet_val"
-      args.set_cfgs = ['ANCHOR_SCALES', '[4, 8, 16, 32]', 'ANCHOR_RATIOS', '[0.5,1,2]', 'MAX_NUM_GT_BOXES', '30']
-  elif args.dataset == "vg":
-      # train sizes: train, smalltrain, minitrain
-      # train scale: ['150-50-20', '150-50-50', '500-150-80', '750-250-150', '1750-700-450', '1600-400-20']
-      args.imdb_name = "vg_150-50-50_minitrain"
-      args.imdbval_name = "vg_150-50-50_minival"
-      args.set_cfgs = ['ANCHOR_SCALES', '[4, 8, 16, 32]', 'ANCHOR_RATIOS', '[0.5,1,2]', 'MAX_NUM_GT_BOXES', '50']
+  elif args.dataset == 'nuscenes':
+      args.imdb_name = "nuscenes_train"
+      args.imdbval_name = "nuscenes_val"
+      args.set_cfgs = ['ANCHOR_SCALES', '[8, 6, 32]', 'ANCHOR_RATIOS', '[0.5,1,2]', 'MAX_NUM_GT_BOXES', '50']
+
+ # nusc_classes = ('__background__',  # always index 0
+  #                       'animal', 'human.pedestrian.adult', 'human.pedestrian.child', 'human.pedestrian.construction_worker', 'human.pedestrian.personal_mobility', 'human.pedestrian.police_officer', 'human.pedestrian.stroller', 'human.pedestrian.wheelchair', 'movable_object.barrier', 'movable_object.debris', 'movable_object.pushable_pullable', 'movable_object.trafficcone', 'vehicle.bicycle', 'vehicle.bus.bendy', 'vehicle.bus.rigid', 'vehicle.car', 'vehicle.construction', 'vehicle.emergency.ambulance', 'vehicle.emergency.police', 'vehicle.motorcycle', 'vehicle.trailer', 'vehicle.truck', 'static_object.bicycle_rack')
+  
+  nusc_classes = ('__background__',  # always index 0
+                         'animal', 'human', 'movable_object', 'bicycle', 'bus', 'car', 'construction', 'emergency', 'motorcycle', 'trailer', 'truck', 'static_object')
 
   args.cfg_file = "cfgs/{}_ls.yml".format(args.net) if args.large_scale else "cfgs/{}.yml".format(args.net)
 
@@ -194,57 +194,49 @@ if __name__ == '__main__':
   # -- Note: Use validation set and disable the flipped to enable faster loading.
   cfg.TRAIN.USE_FLIPPED = True
   cfg.USE_GPU_NMS = args.cuda
-  imdb, roidb, ratio_list, ratio_index = combined_roidb(args.imdb_name)
-  train_size = len(roidb)
 
-  print('{:d} roidb entries'.format(len(roidb)))
-
-  output_dir = args.save_dir + "/" + args.net + "/" + args.dataset
+  output_dir = "/home/julia/faster-rcnn.pytorch/data/trained_model/" + args.net + "/" + args.dataset
   if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
-  sampler_batch = sampler(train_size, args.batch_size)
+  nusc_sampler_batch = sampler(317, args.batch_size)
+  nusc_set = nuscenes_dataloader(args.batch_size, len(nusc_classes), training = True)
+  nusc_dataloader = torch.utils.data.DataLoader(nusc_set, batch_size = args.batch_size , num_workers = args.num_workers, sampler = nusc_sampler_batch)
 
-  dataset = roibatchLoader(roidb, ratio_list, ratio_index, args.batch_size, \
-                           imdb.num_classes, training=True)
-
-  dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size,
-                            sampler=sampler_batch, num_workers=args.num_workers)
-
-  # initilize the tensor holder here.
-  im_data = torch.FloatTensor(1)
-  im_info = torch.FloatTensor(1)
-  num_boxes = torch.LongTensor(1)
-  gt_boxes = torch.FloatTensor(1)
+  nusc_im_data = torch.FloatTensor(1)
+  nusc_im_info = torch.FloatTensor(1)
+  nusc_num_boxes = torch.LongTensor(1)
+  nusc_gt_boxes = torch.FloatTensor(1)
+  nusc_pcl = torch.FloatTensor(1)
 
   # ship to cuda
   if args.cuda:
-    im_data = im_data.cuda()
-    im_info = im_info.cuda()
-    num_boxes = num_boxes.cuda()
-    gt_boxes = gt_boxes.cuda()
+    nusc_im_data = nusc_im_data.cuda()
+    nusc_im_info = nusc_im_info.cuda()
+    nusc_num_boxes = nusc_num_boxes.cuda()
+    nusc_gt_boxes = nusc_gt_boxes.cuda()
+    nusc_pcl = nusc_pcl.cuda()
 
-  # make variable
-  im_data = Variable(im_data)
-  im_info = Variable(im_info)
-  num_boxes = Variable(num_boxes)
-  gt_boxes = Variable(gt_boxes)
+  nusc_im_data = Variable(nusc_im_data)
+  nusc_im_info = Variable(nusc_im_info)
+  nusc_num_boxes = Variable(nusc_num_boxes)
+  nusc_gt_boxes = Variable(nusc_gt_boxes)
+  nusc_pcl = Variable(nusc_pcl)
 
   if args.cuda:
     cfg.CUDA = True
 
   # initilize the network here.
   if args.net == 'vgg16':
-    fasterRCNN = vgg16(imdb.classes, pretrained=True, class_agnostic=args.class_agnostic)
+    fasterRCNN = vgg16(nusc_classes, pretrained=True, class_agnostic=args.class_agnostic)
   elif args.net == 'res101':
-    fasterRCNN = resnet(imdb.classes, 101, pretrained=True, class_agnostic=args.class_agnostic)
+    fasterRCNN = resnet(nusc_classes, 101, pretrained=True, class_agnostic=args.class_agnostic)
   elif args.net == 'res50':
-    fasterRCNN = resnet(imdb.classes, 50, pretrained=True, class_agnostic=args.class_agnostic)
+    fasterRCNN = resnet(nusc_classes, 50, pretrained=True, class_agnostic=args.class_agnostic)
   elif args.net == 'res152':
-    fasterRCNN = resnet(imdb.classes, 152, pretrained=True, class_agnostic=args.class_agnostic)
+    fasterRCNN = resnet(nusc_classes, 152, pretrained=True, class_agnostic=args.class_agnostic)
   else:
     print("network is not defined")
-    pdb.set_trace()
 
   fasterRCNN.create_architecture()
 
@@ -262,15 +254,15 @@ if __name__ == '__main__':
       else:
         params += [{'params':[value],'lr':lr, 'weight_decay': cfg.TRAIN.WEIGHT_DECAY}]
 
+  if args.cuda:
+    fasterRCNN.cuda()
+      
   if args.optimizer == "adam":
     lr = lr * 0.1
     optimizer = torch.optim.Adam(params)
 
   elif args.optimizer == "sgd":
     optimizer = torch.optim.SGD(params, momentum=cfg.TRAIN.MOMENTUM)
-
-  if args.cuda:
-    fasterRCNN.cuda()
 
   if args.resume:
     load_name = os.path.join(output_dir,
@@ -289,7 +281,7 @@ if __name__ == '__main__':
   if args.mGPUs:
     fasterRCNN = nn.DataParallel(fasterRCNN)
 
-  iters_per_epoch = int(train_size / args.batch_size)
+  nusc_iters_per_epoch = int(len(nusc_set) / args.batch_size)
 
   if args.use_tfboard:
     from tensorboardX import SummaryWriter
@@ -305,20 +297,24 @@ if __name__ == '__main__':
         adjust_learning_rate(optimizer, args.lr_decay_gamma)
         lr *= args.lr_decay_gamma
 
-    data_iter = iter(dataloader)
-    for step in range(iters_per_epoch):
-      data = next(data_iter)
-      im_data.data.resize_(data[0].size()).copy_(data[0])
-      im_info.data.resize_(data[1].size()).copy_(data[1])
-      gt_boxes.data.resize_(data[2].size()).copy_(data[2])
-      num_boxes.data.resize_(data[3].size()).copy_(data[3])
+    nusc_iter = iter(nusc_dataloader)
+    for step in range(nusc_iters_per_epoch):
+      nusc_data = next(nusc_iter)
+      with torch.no_grad():
+              nusc_im_data.resize_(nusc_data[0].size()).copy_(nusc_data[0])
+              nusc_im_info.resize_(nusc_data[1].size()).copy_(nusc_data[1])
+              nusc_gt_boxes.resize_(nusc_data[2].size()).copy_(nusc_data[2])
+              nusc_num_boxes.resize_(nusc_data[3].size()).copy_(nusc_data[3])
+              nusc_pcl.resize_(nusc_data[4].size()).copy_(nusc_data[4])
 
       fasterRCNN.zero_grad()
+
+      #torch.cuda.empty_cache()
       rois, cls_prob, bbox_pred, \
       rpn_loss_cls, rpn_loss_box, \
       RCNN_loss_cls, RCNN_loss_bbox, \
-      rois_label = fasterRCNN(im_data, im_info, gt_boxes, num_boxes)
-
+      rois_label = fasterRCNN(nusc_im_data, nusc_im_info, nusc_gt_boxes, nusc_num_boxes)
+      #pdb.set_trace()
       loss = rpn_loss_cls.mean() + rpn_loss_box.mean() \
            + RCNN_loss_cls.mean() + RCNN_loss_bbox.mean()
       loss_temp += loss.item()
@@ -351,10 +347,11 @@ if __name__ == '__main__':
           bg_cnt = rois_label.data.numel() - fg_cnt
 
         print("[session %d][epoch %2d][iter %4d/%4d] loss: %.4f, lr: %.2e" \
-                                % (args.session, epoch, step, iters_per_epoch, loss_temp, lr))
+                                % (args.session, epoch, step, nusc_iters_per_epoch, loss_temp, lr))
         print("\t\t\tfg/bg=(%d/%d), time cost: %f" % (fg_cnt, bg_cnt, end-start))
         print("\t\t\trpn_cls: %.4f, rpn_box: %.4f, rcnn_cls: %.4f, rcnn_box %.4f" \
                       % (loss_rpn_cls, loss_rpn_box, loss_rcnn_cls, loss_rcnn_box))
+        
         if args.use_tfboard:
           info = {
             'loss': loss_temp,
@@ -363,7 +360,7 @@ if __name__ == '__main__':
             'loss_rcnn_cls': loss_rcnn_cls,
             'loss_rcnn_box': loss_rcnn_box
           }
-          logger.add_scalars("logs_s_{}/losses".format(args.session), info, (epoch - 1) * iters_per_epoch + step)
+          logger.add_scalars("logs_s_{}/losses".format(args.session), info, (epoch - 1) * nusc_iters_per_epoch + step)
 
         loss_temp = 0
         start = time.time()
