@@ -273,7 +273,7 @@ if __name__ == '__main__':
       if vis:
           im = cv2.imread(imdb.image_path_at(i))
           im2show = np.copy(im)
-      for j in xrange(1, imdb.num_classes):
+      for j in xrange(1, len(nuscenes_classes)):
           inds = torch.nonzero(scores[:,j]>thresh).view(-1)
           # if there is det
           if inds.numel() > 0:
@@ -315,8 +315,6 @@ if __name__ == '__main__':
       if vis:
           cv2.imwrite('result.png', im2show)
           pdb.set_trace()
-          #cv2.imshow('test', im2show)
-          #cv2.waitKey(0)
 
   with open(det_file, 'wb') as f:
       pickle.dump(all_boxes, f, pickle.HIGHEST_PROTOCOL)

@@ -48,7 +48,6 @@ class _fasterRCNN(nn.Module):
         self.RCNN_roi_align = ROIAlign((cfg.POOLING_SIZE, cfg.POOLING_SIZE), 1.0/16.0, 0)
 
     def forward(self, im_data, im_info, gt_boxes, num_boxes):
-        #pdb.set_trace()
         batch_size = im_data.size(0)
 
         im_info = im_info.data
@@ -58,16 +57,8 @@ class _fasterRCNN(nn.Module):
         # feed image data to base model to obtain base feature map
         base_feat = self.RCNN_base(im_data)
         torch.cuda.empty_cache()
-        # feed point cloud into pointnet to obtain global feature map of LiDAR data 
-        #classifier = PointNetCls(k=self.n_classes, feature_transform=True)
-       # _, _, _, point_feat = self.pointnet(pcl_data)
-        
-
-        #print(base_feat.size())
-        #print(points_feat.size())
 
         # feed base feature map tp RPN to obtain rois
-        #pdb.set_trace()
         rois, rpn_loss_cls, rpn_loss_bbox = self.RCNN_rpn(base_feat, im_info, gt_boxes, num_boxes)
         # if it is training phrase, then use ground trubut bboxes for refining
         if self.training:
@@ -119,14 +110,18 @@ class _fasterRCNN(nn.Module):
         if self.training:
             # classification loss
             RCNN_loss_cls = F.cross_entropy(cls_score, rois_label)
+            if RCNN_loss_cls != RCNN_loss_cls:
+                pdb.set_trace()
 
             # bounding box regression L1 loss
             RCNN_loss_bbox = _smooth_l1_loss(bbox_pred, rois_target, rois_inside_ws, rois_outside_ws)
+            if RCNN_loss_bbox != RCNN_loss_bbox:
+                pdb.set_trace()
 
 
         cls_prob = cls_prob.view(batch_size, rois.size(1), -1)
         bbox_pred = bbox_pred.view(batch_size, rois.size(1), -1)
-        #pdb.set_trace()
+
         return rois, cls_prob, bbox_pred, rpn_loss_cls, rpn_loss_bbox, RCNN_loss_cls, RCNN_loss_bbox, rois_label
 
     def _init_weights(self):
@@ -148,6 +143,5 @@ class _fasterRCNN(nn.Module):
         normal_init(self.RCNN_bbox_pred, 0, 0.001, cfg.TRAIN.TRUNCATED)
 
     def create_architecture(self):
-        #pdb.set_trace()
         self._init_modules()
         self._init_weights()

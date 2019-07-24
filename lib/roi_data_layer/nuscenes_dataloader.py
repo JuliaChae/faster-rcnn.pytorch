@@ -44,14 +44,19 @@ class nuscenes_dataloader(data.Dataset):
     self.batch_size = batch_size
     self.nusc= NuScenes(version='v1.0-trainval', dataroot = '/data/sets/nuscenes', verbose= True)
     self.explorer = NuScenesExplorer(self.nusc)
-    #self.classes = self._classes = ('__background__',  # always index 0
-                         #'animal', 'human.pedestrian.adult', 'human.pedestrian.child', 'human.pedestrian.construction_worker', 'human.pedestrian.personal_mobility', 'human.pedestrian.police_officer', 'human.pedestrian.stroller', 'human.pedestrian.wheelchair', 'movable_object.barrier', 'movable_object.debris', 'movable_object.pushable_pullable', 'movable_object.trafficcone', 'vehicle.bicycle', 'vehicle.bus.bendy', 'vehicle.bus.rigid', 'vehicle.car', 'vehicle.construction', 'vehicle.emergency.ambulance', 'vehicle.emergency.police', 'vehicle.motorcycle', 'vehicle.trailer', 'vehicle.truck', 'static_object.bicycle_rack')
-    self.classes = ('__background__',  # always index 0
-                         'animal', 'human', 'movable_object', 'bicycle', 'bus', 'car', 'construction', 'emergency', 'motorcycle', 'trailer', 'truck', 'static_object')
+    self.classes = ('__background__', 
+                           'pedestrian', 'barrier', 'trafficcone', 'bicycle', 'bus', 'car', 'construction', 'motorcycle', 'trailer', 'truck')
+    file_dir = os.path.dirname(os.path.abspath(__file__))
+    roots = file_dir.split('/')[:-2]
+    root_dir = ""
+    for folder in roots:
+        if folder != "":
+            root_dir = root_dir + "/" + folder
+    pdb.set_trace()
     if training == True: 
-        PATH = '/data/sets/nuscenes/train_mini.txt'
+        PATH = root_dir + '/data/train_mini.txt'
     else:
-        PATH = '/data/sets/nuscenes/test_mini.txt'
+        PATH = root_dir + '/data/test_mini.txt'
     with open(PATH) as f:
         self.image_token = [x.strip() for x in f.readlines()]
 
@@ -63,6 +68,7 @@ class nuscenes_dataloader(data.Dataset):
     sample_token = sample_data['sample_token']
     sample = self.nusc.get('sample', sample_token)
     image_name = sample_data['filename']
+    image_path = '/data/sets/nuscenes/' + image_name
     img = imread('/data/sets/nuscenes/' + image_name)
     im = np.array(img)
     
@@ -83,9 +89,7 @@ class nuscenes_dataloader(data.Dataset):
     im_size_min = np.min(im_shape[0:2])
     im_size_max = np.max(im_shape[0:2])
     im_scale = float(target_size) / float(im_size_min)
-    #print("Image size: " + str(im.shape))
     im = cv2.resize(im, None, None, fx=im_scale, fy=im_scale, interpolation=cv2.INTER_LINEAR)
-    #print("Image size: " + str(im.shape))
     im = im.transpose(2,0,1)
     
     # save im_info
@@ -93,9 +97,7 @@ class nuscenes_dataloader(data.Dataset):
 
     # get ground truth boxes 
     data_path, boxes, camera_intrinsic = self.nusc.get_sample_data(im_token, box_vis_level=BoxVisibility.ANY)
-    #fig, ax = plt.subplots()
-    #ax.imshow(Image.open(data_path))
-    #image = ax.imshow(im)
+
     gt_boxes = np.zeros((50, 5), dtype=np.float32)
     i = 0
     for box in boxes:
@@ -103,28 +105,29 @@ class nuscenes_dataloader(data.Dataset):
             break
         corners= view_points(box.corners(), view=camera_intrinsic, normalize=True)[:2,:]
         corners = corners*im_scale
-        #box.render(ax, view=camera_intrinsic, normalize=True)
-        #pdb.set_trace()
+
         gt_boxes[i,0]= np.min(corners[0])
         gt_boxes[i,1]= np.min(corners[1])
         gt_boxes[i,2]= np.max(corners[0])
         gt_boxes[i,3]= np.max(corners[1])
         if box.name.split('.')[0] == 'vehicle':
-            name = box.name.split('.')[1]
+            if box.name.split('.')[1] != 'emergency':
+                name = box.name.split('.')[1]
+            else:
+                name = ''
+        elif box.name.split('.')[0] == 'human':
+            name = 'pedestrian'
+        elif box.name.split('.')[0] == 'movable_object':
+            if box.name.split('.')[1] != 'debris' and box.name.split('.')[1] != 'pushable_pullable': 
+                name = box.name.split('.')[1]
+            else:
+                name = ''
         else:
-            name = box.name.split('.')[0]
-
-        gt_boxes[i,4]=self.classes.index(name)
-
-        #self.draw_rect(ax, corners.T[:4])
-        #ax.plot([corners.T[0][0], corners.T[2][0]], [corners.T[0][1], corners.T[2][1]])
-
-        #self.draw_rect(ax, corners.T[4:])
-        #print(corners)
-        i += 1 
-    #ax.set_xlim(0, im.shape[1])
-    #ax.set_ylim(im.shape[0], 0)
-
+            name = ''
+        if name != '': 
+            gt_boxes[i,4]=self.classes.index(name)
+            i += 1 
+            
     # save the number of boxes 
     num_boxes = len(boxes)
  
@@ -141,11 +144,8 @@ class nuscenes_dataloader(data.Dataset):
     pc = pc.points.transpose() 
     pc = pc[np.where(radius<20)]
     pc = pc.transpose()[:3]
-    #pdb.set_trace()
-    #print(pc)
-    #self.display(pc.transpose())
-    #plt.show()
-    return im, im_info, gt_boxes, num_boxes, pc
+
+    return im, im_info, gt_boxes, num_boxes, image_path
 
   def draw_rect(self,axis, selected_corners):
     prev = selected_corners[-1]
