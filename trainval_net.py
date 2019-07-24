@@ -352,6 +352,8 @@ if __name__ == '__main__':
 	f2.close()
 	f3 = open(output_dir + '/val_accuracy.txt','w+')
 	f3.close()
+
+	min_loss = 100
 	for epoch in range(args.start_epoch, args.max_epochs + 1):
 		train_accuracy = []
 		val_accuracy = [] 
@@ -630,18 +632,20 @@ if __name__ == '__main__':
 		f2.close()
 		f3 = open(output_dir + '/val_accuracy.txt','a+')
 		f3.write("%.4f	%.4f	%.4f	%.4f	%.4f	%.4f	%.4f	%.4f	%.4f	%.4f\n" % (val_accuracy[1], val_accuracy[2], val_accuracy[3], val_accuracy[4], val_accuracy[5], val_accuracy[6], val_accuracy[7], val_accuracy[8], val_accuracy[9], val_accuracy[10]))
-		f3.close()
+		f3.close()_temp 
 
-		save_name = os.path.join(output_dir, 'faster_rcnn_{}_{}_{}.pth'.format(args.session, epoch, step))
-		save_checkpoint({
-		  'session': args.session,
-		  'epoch': epoch + 1,
-		  'model': fasterRCNN.module.state_dict() if args.mGPUs else fasterRCNN.state_dict(),
-		  'optimizer': optimizer.state_dict(),
-		  'pooling_mode': cfg.POOLING_MODE,
-		  'class_agnostic': args.class_agnostic,
-		}, save_name)
-		print('save model: {}'.format(save_name))
+		if val_loss_temp < min_loss:
+			min_loss = val_loss_temp 
+			save_name = os.path.join(output_dir, 'faster_rcnn_{}_{}_{}.pth'.format(args.session, epoch, step))
+			save_checkpoint({
+			  'session': args.session,
+			  'epoch': epoch + 1,
+			  'model': fasterRCNN.module.state_dict() if args.mGPUs else fasterRCNN.state_dict(),
+			  'optimizer': optimizer.state_dict(),
+			  'pooling_mode': cfg.POOLING_MODE,
+			  'class_agnostic': args.class_agnostic,
+			}, save_name)
+			print('saved model: {}'.format(save_name))
 
 	if args.use_tfboard:
 		logger.close()
