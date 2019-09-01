@@ -50,7 +50,7 @@ def get_minibatch(roidb, num_classes):
     dtype=np.float32)
 
   blobs['img_id'] = roidb[0]['img_id']
-
+  pdb.set_trace()
   return blobs
 
 def _get_image_blob(roidb, scale_inds):

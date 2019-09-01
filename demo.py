@@ -155,6 +155,11 @@ if __name__ == '__main__':
   print('Called with args:')
   print(args)
 
+  if args.dataset == "coco":
+    args.imdb_name = "coco_2014_train+coco_2014_valminusminival"
+    args.imdbval_name = "coco_2014_minival"
+    args.set_cfgs = ['ANCHOR_SCALES', '[4, 8, 16, 32]', 'ANCHOR_RATIOS', '[0.5,1,2]']
+
   if args.cfg_file is not None:
     cfg_from_file(args.cfg_file)
   if args.set_cfgs is not None:
@@ -183,15 +188,25 @@ if __name__ == '__main__':
                        'motorbike', 'person', 'pottedplant',
                        'sheep', 'sofa', 'train', 'tvmonitor'])
 
+  coco_classes = np.asarray(['__background__', 'person','bicycle','car','motorcycle','airplane','bus','train','truck','boat',
+                        'traffic light','fire hydrant','stop sign','parking meter','bench','bird','cat','dog','horse','sheep',
+                        'cow','elephant','bear','zebra','giraffe','backpack','umbrella','handbag','tie','suitcase','frisbee',
+                        'skis','snowboard','sports ball','kite','baseball bat','baseball glove','skateboard','surfboard',
+                        'tennis racket','bottle','wine glass','cup','fork','knife','spoon','bowl','banana',
+                        'apple','sandwich','orange','broccoli','carrot','hot dog','pizza','donut','cake','chair','couch',
+                        'potted plant','bed','dining table','toilet','tv','laptop','mouse','remote','keyboard',
+                        'cell phone','microwave','oven','toaster','sink','refrigerator','book','clock','vase',
+                        'scissors','teddy bear','hair drier','toothbrush'])
+
   # initilize the network here.
   if args.net == 'vgg16':
-    fasterRCNN = vgg16(pascal_classes, pretrained=False, class_agnostic=args.class_agnostic)
+    fasterRCNN = vgg16(coco_classes, pretrained=False, class_agnostic=args.class_agnostic)
   elif args.net == 'res101':
-    fasterRCNN = resnet(pascal_classes, 101, pretrained=False, class_agnostic=args.class_agnostic)
+    fasterRCNN = resnet(coco_classes, 101, pretrained=False, class_agnostic=args.class_agnostic)
   elif args.net == 'res50':
-    fasterRCNN = resnet(pascal_classes, 50, pretrained=False, class_agnostic=args.class_agnostic)
+    fasterRCNN = resnet(coco_classes, 50, pretrained=False, class_agnostic=args.class_agnostic)
   elif args.net == 'res152':
-    fasterRCNN = resnet(pascal_classes, 152, pretrained=False, class_agnostic=args.class_agnostic)
+    fasterRCNN = resnet(coco_classes, 152, pretrained=False, class_agnostic=args.class_agnostic)
   else:
     print("network is not defined")
     pdb.set_trace()
@@ -247,35 +262,25 @@ if __name__ == '__main__':
   vis = True
 
   imglist = []
-  if args.nuscenes == True:
-      for scene in nusc.scene:
-          token = scene['first_sample_token']
-          while token != '':
-              sample = nusc.get('sample',token)
-              sample_data = nusc.get('sample_data', sample['data']['CAM_FRONT'])
-              data_path, boxes, camera_intrinsic = explorer.nusc.get_sample_data(sample_data['token'], box_vis_level = BoxVisibility.ANY)
-              imglist += [data_path]
-             # img = nusc.render_sample_data(sample_data['token'])
-              token = sample['next']   
-      print(len(imglist))
-  else:
-      imglist = os.listdir(args.image_dir)
-      print(imglist)
-      num_images = len(imglist)
+  PATH = '/data/sets/nuscenes/train_mini_diffcam.txt'
+  with open(PATH) as f:
+      image_token = [x.strip() for x in f.readlines()]
+  for im_token in image_token: 
+      sample_data = nusc.get('sample_data', im_token)
+      sample_token = sample_data['sample_token']
+      sample = nusc.get('sample', sample_token)
+      image_name = sample_data['filename']
+      imglist += [image_name[8:]]
+  num_images = len(imglist)
 
   print('Loaded Photo: {} images.'.format(num_images))
-
 
   while (num_images >= 0):
       total_tic = time.time()
       num_images -= 1
-
-      if args.nuscenes == True: 
-          im_in = nusc_images[num_images]
-      else:
-          im_file = os.path.join(args.image_dir, imglist[num_images])
-          # im = cv2.imread(im_file)
-          im_in = np.array(imread(im_file))
+      im_file = os.path.join(args.image_dir, imglist[num_images])
+      # im = cv2.imread(im_file)
+      im_in = np.array(imread(im_file))
       if len(im_in.shape) == 2:
         im_in = im_in[:,:,np.newaxis]
         im_in = np.concatenate((im_in,im_in,im_in), axis=2)
@@ -330,7 +335,7 @@ if __name__ == '__main__':
                 else:
                     box_deltas = box_deltas.view(-1, 4) * torch.FloatTensor(cfg.TRAIN.BBOX_NORMALIZE_STDS) \
                                + torch.FloatTensor(cfg.TRAIN.BBOX_NORMALIZE_MEANS)
-                box_deltas = box_deltas.view(1, -1, 4 * len(pascal_classes))
+                box_deltas = box_deltas.view(1, -1, 4 * len(coco_classes))
 
           pred_boxes = bbox_transform_inv(boxes, box_deltas, 1)
           pred_boxes = clip_boxes(pred_boxes, im_info.data, 1)
@@ -349,7 +354,7 @@ if __name__ == '__main__':
           im2show = np.copy(im)
       print("Shape of boxes: " + str(pred_boxes.size()))
       print(pred_boxes)
-      for j in xrange(1, len(pascal_classes)):
+      for j in xrange(1, len(coco_classes)):
           inds = torch.nonzero(scores[:,j]).view(-1)#scores[:,j]>thresh).view(-1)
           # if there is det
           if inds.numel() > 0:
@@ -372,7 +377,7 @@ if __name__ == '__main__':
                 top_right = bbox[2:4] 
                 crop_img = im2show[bot_left[1]:top_right[1],bot_left[0]:top_right[0]]
             if vis:
-              im2show = vis_detections(im2show, pascal_classes[j], cls_dets.cpu().numpy(), 0.5)
+              im2show = vis_detections(im2show, coco_classes[j], cls_dets.cpu().numpy(), 0.5)
       
       plt.figure()
       print(im2show.shape)
@@ -388,7 +393,7 @@ if __name__ == '__main__':
 
       # cv2.imshow('test', im2show)
       # cv2.waitKey(0)
-      result_path = os.path.join("images", imglist[num_images][:-4] + "_det.jpg")
-      cv2.imwrite(result_path, im2show)
+      #result_path = os.path.join("images", imglist[num_images][:-4] + "_det.jpg")
+      #cv2.imwrite(result_path, im2show)
 
 

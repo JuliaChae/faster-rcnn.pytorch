@@ -38,9 +38,6 @@ class _fasterRCNN(nn.Module):
         self.RCNN_rpn = _RPN(self.dout_base_model)
         self.RCNN_proposal_target = _ProposalTargetLayer(self.n_classes)
 
-        # define pointnet 
-        #self.pointnet = PointNetfeat(feature_transform=True)
-
         # self.RCNN_roi_pool = _RoIPooling(cfg.POOLING_SIZE, cfg.POOLING_SIZE, 1.0/16.0)
         # self.RCNN_roi_align = RoIAlignAvg(cfg.POOLING_SIZE, cfg.POOLING_SIZE, 1.0/16.0)
 
@@ -109,7 +106,9 @@ class _fasterRCNN(nn.Module):
 
         if self.training:
             # classification loss
-            RCNN_loss_cls = F.cross_entropy(cls_score, rois_label)
+            weights = [2.0, 5.0, 7.0, 11.0, 100.0, 55.0, 3.0, 76.0, 90.0, 50.0, 12.0]
+            class_weights =torch.FloatTensor(weights).cuda()
+            RCNN_loss_cls = F.cross_entropy(cls_score, rois_label, weight= class_weights)
             if RCNN_loss_cls != RCNN_loss_cls:
                 pdb.set_trace()
 
