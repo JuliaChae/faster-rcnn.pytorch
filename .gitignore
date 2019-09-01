@@ -1,4 +1,6 @@
 data/trained_model
+data/pretrained_model
+models/
 # READ THIS BEFORE YOU REFACTOR ME
 #
 # setup.py uses the list of patterns in this file to decide
